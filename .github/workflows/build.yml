@@ -1,0 +1,166 @@
+name: APK derle
+on:
+  push:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Proje dosyalarini olustur
+        run: |
+          mkdir -p app/src/main/java/com/oyun/kutuphane app/src/main/assets
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "OyunKutuphanem"
+          include ':app'
+          EOF
+          cat > build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.5.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+          }
+          EOF
+          cat > gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx2g -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          EOF
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+
+          android {
+              namespace 'com.oyun.kutuphane'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.oyun.kutuphane'
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = '17' }
+          }
+
+          dependencies {
+              implementation 'androidx.activity:activity:1.9.0'
+              implementation 'androidx.webkit:webkit:1.11.0'
+          }
+          EOF
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Oyun Kütüphanem"
+                  android:allowBackup="true"
+                  android:theme="@android:style/Theme.Material.Light.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          cat > app/src/main/java/com/oyun/kutuphane/MainActivity.kt <<'EOF'
+          package com.oyun.kutuphane
+
+          import android.annotation.SuppressLint
+          import android.app.Activity
+          import android.net.Uri
+          import android.os.Bundle
+          import android.webkit.ValueCallback
+          import android.webkit.WebChromeClient
+          import android.webkit.WebResourceRequest
+          import android.webkit.WebResourceResponse
+          import android.webkit.WebView
+          import android.webkit.WebViewClient
+          import androidx.activity.ComponentActivity
+          import androidx.activity.OnBackPressedCallback
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.webkit.WebViewAssetLoader
+
+          class MainActivity : ComponentActivity() {
+              private lateinit var web: WebView
+              private var pending: ValueCallback<Array<Uri>>? = null
+
+              private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+                  val uris = if (r.resultCode == Activity.RESULT_OK)
+                      WebChromeClient.FileChooserParams.parseResult(r.resultCode, r.data) else null
+                  pending?.onReceiveValue(uris)
+                  pending = null
+              }
+
+              @SuppressLint("SetJavaScriptEnabled")
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  web = WebView(this)
+                  setContentView(web)
+
+                  val loader = WebViewAssetLoader.Builder()
+                      .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+                      .build()
+
+                  web.settings.apply {
+                      javaScriptEnabled = true
+                      domStorageEnabled = true
+                      mediaPlaybackRequiresUserGesture = false
+                  }
+                  web.webViewClient = object : WebViewClient() {
+                      override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                          loader.shouldInterceptRequest(request.url)
+                  }
+                  web.webChromeClient = object : WebChromeClient() {
+                      override fun onShowFileChooser(
+                          view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams
+                      ): Boolean {
+                          pending?.onReceiveValue(null)
+                          pending = callback
+                          return try { picker.launch(params.createIntent()); true }
+                          catch (e: Exception) { pending = null; false }
+                      }
+                  }
+                  web.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+
+                  onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+                      override fun handleOnBackPressed() {
+                          val js = "(function(){var p=document.getElementById('playM');" +
+                              "if(p.classList.contains('show')){document.getElementById('closePlay').click();return 1}" +
+                              "var m=document.querySelectorAll('.modal.show');" +
+                              "if(m.length){m[0].classList.remove('show');return 1}return 0})()"
+                          web.evaluateJavascript(js) { r -> if (r != "1") finish() }
+                      }
+                  })
+              }
+          }
+          EOF
+          base64 -d > app/src/main/assets/index.html <<'EOF'
+          PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9InRyIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9InV0Zi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xLCB2aWV3cG9ydC1maXQ9Y292ZXIiPgo8dGl0bGU+T3l1biBLw7x0w7xwaGFuZW08L3RpdGxlPjxtZXRhIG5hbWU9ImNvbG9yLXNjaGVtZSIgY29udGVudD0ibGlnaHQgZGFyayI+PG1ldGEgbmFtZT0idGhlbWUtY29sb3IiIGNvbnRlbnQ9IiMyZjRiNDUiPjxtZXRhIG5hbWU9Im1vYmlsZS13ZWItYXBwLWNhcGFibGUiIGNvbnRlbnQ9InllcyI+PG1ldGEgbmFtZT0iYXBwbGUtbW9iaWxlLXdlYi1hcHAtY2FwYWJsZSIgY29udGVudD0ieWVzIj4KPHN0eWxlPgo6cm9vdHstLWJnOiNmYWY5Zjc7LS1zdXJmYWNlOiNmZmY7LS10ZXh0OiMxYzFiMWE7LS1tdXRlZDojNzc3MzZkOy0tbGluZTojZThlNWUwOy0tYWNjZW50OiMyZjRiNDU7LS1hY2NlbnQtdDojZmZmO2JveC1zaXppbmc6Ym9yZGVyLWJveDtwYWRkaW5nLXRvcDplbnYoc2FmZS1hcmVhLWluc2V0LXRvcCwwcHgpO3BhZGRpbmctYm90dG9tOmVudihzYWZlLWFyZWEtaW5zZXQtYm90dG9tLDBweCk7Y29sb3Itc2NoZW1lOmxpZ2h0fQpAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOmRhcmspezpyb290Om5vdChbZGF0YS10aGVtZT0ibGlnaHQiXSl7LS1iZzojMTQxNDEzOy0tc3VyZmFjZTojMWQxYzFiOy0tdGV4dDojZjFlZWVhOy0tbXV0ZWQ6IzlhOTU4ZTstLWxpbmU6IzJlMmMyYTstLWFjY2VudDojOWZjM2I4Oy0tYWNjZW50LXQ6IzEwMjExZDtjb2xvci1zY2hlbWU6ZGFya319Cjpyb290W2RhdGEtdGhlbWU9ImRhcmsiXXstLWJnOiMxNDE0MTM7LS1zdXJmYWNlOiMxZDFjMWI7LS10ZXh0OiNmMWVlZWE7LS1tdXRlZDojOWE5NThlOy0tbGluZTojMmUyYzJhOy0tYWNjZW50OiM5ZmMzYjg7LS1hY2NlbnQtdDojMTAyMTFkO2NvbG9yLXNjaGVtZTpkYXJrfQoqe2JveC1zaXppbmc6Ym9yZGVyLWJveH0KaHRtbHtzY3JvbGwtcGFkZGluZy10b3A6ZW52KHNhZmUtYXJlYS1pbnNldC10b3AsMHB4KX0KYm9keXttYXJnaW46MDtiYWNrZ3JvdW5kOnZhcigtLWJnKTtjb2xvcjp2YXIoLS10ZXh0KTtmb250LWZhbWlseTpHZW9yZ2lhLCdUaW1lcyBOZXcgUm9tYW4nLHNlcmlmfQouc2Fuc3tmb250LWZhbWlseTpzeXN0ZW0tdWksLWFwcGxlLXN5c3RlbSwnU2Vnb2UgVUknLFJvYm90byxzYW5zLXNlcmlmfQoud3JhcHttYXgtd2lkdGg6MTA0MHB4O21hcmdpbjowIGF1dG87cGFkZGluZzowIDIwcHh9CmhlYWRlcntkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2p1c3RpZnktY29udGVudDpzcGFjZS1iZXR3ZWVuO3BhZGRpbmc6MjJweCAwO2JvcmRlci1ib3R0b206MXB4IHNvbGlkIHZhcigtLWxpbmUpfQoubG9nb3tmb250LXNpemU6MjJweDtsZXR0ZXItc3BhY2luZzouMDJlbX0KLmxvZ28gc3Bhbntjb2xvcjp2YXIoLS1hY2NlbnQpfQpidXR0b257Zm9udC1mYW1pbHk6c3lzdGVtLXVpLHNhbnMtc2VyaWY7Zm9udC1zaXplOjE0cHg7Y3Vyc29yOnBvaW50ZXI7Ym9yZGVyLXJhZGl1czo4cHg7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1saW5lKTtiYWNrZ3JvdW5kOnZhcigtLXN1cmZhY2UpO2NvbG9yOnZhcigtLXRleHQpO3BhZGRpbmc6MTBweCAxNnB4fQpidXR0b24ucHJpbWFyeXtiYWNrZ3JvdW5kOnZhcigtLWFjY2VudCk7Y29sb3I6dmFyKC0tYWNjZW50LXQpO2JvcmRlci1jb2xvcjp2YXIoLS1hY2NlbnQpfQpidXR0b246aG92ZXJ7b3BhY2l0eTouODh9Ci5oZXJve3BhZGRpbmc6NTZweCAwIDI4cHh9Ci5oZXJvIGgxe2ZvbnQtc2l6ZTpjbGFtcCgzMHB4LDZ2dyw0NnB4KTtmb250LXdlaWdodDo0MDA7bWFyZ2luOjAgMCAxMHB4O2xpbmUtaGVpZ2h0OjEuMTV9Ci5oZXJvIHB7bWFyZ2luOjA7Y29sb3I6dmFyKC0tbXV0ZWQpO2ZvbnQtZmFtaWx5OnN5c3RlbS11aSxzYW5zLXNlcmlmO21heC13aWR0aDo0ODBweDtsaW5lLWhlaWdodDoxLjU1fQoudG9vbHN7ZGlzcGxheTpmbGV4O2ZsZXgtd3JhcDp3cmFwO2dhcDoxMHB4O21hcmdpbjoyNnB4IDB9CmlucHV0LHNlbGVjdCx0ZXh0YXJlYXtmb250LWZhbWlseTpzeXN0ZW0tdWksc2Fucy1zZXJpZjtmb250LXNpemU6MTRweDtjb2xvcjp2YXIoLS10ZXh0KTtiYWNrZ3JvdW5kOnZhcigtLXN1cmZhY2UpO2JvcmRlcjoxcHggc29saWQgdmFyKC0tbGluZSk7Ym9yZGVyLXJhZGl1czo4cHg7cGFkZGluZzoxMHB4IDEycHg7d2lkdGg6MTAwJX0KLnRvb2xzIGlucHV0e2ZsZXg6MTttaW4td2lkdGg6MTgwcHg7d2lkdGg6YXV0b30KLmNoaXBze2Rpc3BsYXk6ZmxleDtnYXA6OHB4O2ZsZXgtd3JhcDp3cmFwfQouY2hpcHtib3JkZXItcmFkaXVzOjk5cHg7cGFkZGluZzo3cHggMTRweDtmb250LXNpemU6MTNweDtjb2xvcjp2YXIoLS1tdXRlZCl9Ci5jaGlwLm9ue2JhY2tncm91bmQ6dmFyKC0tdGV4dCk7Y29sb3I6dmFyKC0tYmcpO2JvcmRlci1jb2xvcjp2YXIoLS10ZXh0KX0KLmdyaWR7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczpyZXBlYXQoYXV0by1maWxsLG1pbm1heCgyMzBweCwxZnIpKTtnYXA6MThweDtwYWRkaW5nLWJvdHRvbTo2MHB4fQouY2FyZHtiYWNrZ3JvdW5kOnZhcigtLXN1cmZhY2UpO2JvcmRlcjoxcHggc29saWQgdmFyKC0tbGluZSk7Ym9yZGVyLXJhZGl1czoxNHB4O292ZXJmbG93OmhpZGRlbjtkaXNwbGF5OmZsZXg7ZmxleC1kaXJlY3Rpb246Y29sdW1ufQouY292ZXJ7YXNwZWN0LXJhdGlvOjE2LzEwO2JhY2tncm91bmQ6dmFyKC0tbGluZSkgY2VudGVyL2NvdmVyO2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7anVzdGlmeS1jb250ZW50OmNlbnRlcjtmb250LXNpemU6NDBweDtjb2xvcjp2YXIoLS1tdXRlZCl9Ci5ib2R5e3BhZGRpbmc6MTRweCAxNnB4IDE2cHg7ZGlzcGxheTpmbGV4O2ZsZXgtZGlyZWN0aW9uOmNvbHVtbjtnYXA6NnB4O2ZsZXg6MX0KLmNhdHtmb250OjEycHggc3lzdGVtLXVpLHNhbnMtc2VyaWY7Y29sb3I6dmFyKC0tYWNjZW50KTt0ZXh0LXRyYW5zZm9ybTp1cHBlcmNhc2U7bGV0dGVyLXNwYWNpbmc6LjA4ZW19Ci5ib2R5IGgze21hcmdpbjowO2ZvbnQtc2l6ZToxOHB4O2ZvbnQtd2VpZ2h0OjQwMH0KLmJvZHkgcHttYXJnaW46MDtjb2xvcjp2YXIoLS1tdXRlZCk7Zm9udDoxM3B4LzEuNSBzeXN0ZW0tdWksc2Fucy1zZXJpZjtmbGV4OjF9Ci5yb3d7ZGlzcGxheTpmbGV4O2dhcDo4cHg7bWFyZ2luLXRvcDoxMHB4fQoucm93IGJ1dHRvbntmbGV4OjE7cGFkZGluZzo5cHh9Ci5lbXB0eXtncmlkLWNvbHVtbjoxLy0xO3RleHQtYWxpZ246Y2VudGVyO2NvbG9yOnZhcigtLW11dGVkKTtmb250LWZhbWlseTpzeXN0ZW0tdWksc2Fucy1zZXJpZjtwYWRkaW5nOjYwcHggMDtib3JkZXI6MXB4IGRhc2hlZCB2YXIoLS1saW5lKTtib3JkZXItcmFkaXVzOjE0cHh9Ci5tb2RhbHtwb3NpdGlvbjpmaXhlZDtpbnNldDowO2JhY2tncm91bmQ6cmdiYSgwLDAsMCwuNSk7ZGlzcGxheTpub25lO2FsaWduLWl0ZW1zOmNlbnRlcjtqdXN0aWZ5LWNvbnRlbnQ6Y2VudGVyO3BhZGRpbmc6MTZweDt6LWluZGV4OjIwfQoubW9kYWwuc2hvd3tkaXNwbGF5OmZsZXh9Ci5wYW5lbHtiYWNrZ3JvdW5kOnZhcigtLWJnKTtib3JkZXItcmFkaXVzOjE2cHg7d2lkdGg6MTAwJTttYXgtd2lkdGg6NDYwcHg7bWF4LWhlaWdodDo5MnZoO292ZXJmbG93OmF1dG87cGFkZGluZzoyMnB4O2ZvbnQtZmFtaWx5OnN5c3RlbS11aSxzYW5zLXNlcmlmfQoucGFuZWwgaDJ7bWFyZ2luOjAgMCAxNHB4O2ZvbnQ6NDAwIDIycHggR2VvcmdpYSxzZXJpZn0KbGFiZWx7ZGlzcGxheTpibG9jaztmb250LXNpemU6MTJweDtjb2xvcjp2YXIoLS1tdXRlZCk7bWFyZ2luOjEycHggMCA1cHh9Ci5wbGF5e21heC13aWR0aDo5NjBweDtwYWRkaW5nOjA7b3ZlcmZsb3c6aGlkZGVuO2Rpc3BsYXk6ZmxleDtmbGV4LWRpcmVjdGlvbjpjb2x1bW47aGVpZ2h0Ojg2dmh9Ci5wbGF5IC5iYXJ7ZGlzcGxheTpmbGV4O2p1c3RpZnktY29udGVudDpzcGFjZS1iZXR3ZWVuO2FsaWduLWl0ZW1zOmNlbnRlcjtwYWRkaW5nOjEycHggMTZweDtib3JkZXItYm90dG9tOjFweCBzb2xpZCB2YXIoLS1saW5lKX0KLnBsYXkgaWZyYW1le2ZsZXg6MTtib3JkZXI6MDt3aWR0aDoxMDAlO2JhY2tncm91bmQ6I2ZmZn0KLm5vdGV7Zm9udC1zaXplOjEycHg7Y29sb3I6dmFyKC0tbXV0ZWQpO21hcmdpbi10b3A6OHB4O2xpbmUtaGVpZ2h0OjEuNX0KZm9vdGVye2JvcmRlci10b3A6MXB4IHNvbGlkIHZhcigtLWxpbmUpO3BhZGRpbmc6MjJweCAwO2NvbG9yOnZhcigtLW11dGVkKTtmb250OjEzcHggc3lzdGVtLXVpLHNhbnMtc2VyaWY7dGV4dC1hbGlnbjpjZW50ZXJ9Ci5hZG17ZGlzcGxheTpub25lO2JvcmRlcjoxcHggc29saWQgdmFyKC0tbGluZSk7Ym9yZGVyLXJhZGl1czoxNHB4O3BhZGRpbmc6MThweDttYXJnaW46MjJweCAwO2JhY2tncm91bmQ6dmFyKC0tc3VyZmFjZSl9LmFkbS5zaG93e2Rpc3BsYXk6YmxvY2t9LmFkbSBoMnttYXJnaW46MCAwIDRweDtmb250OjQwMCAyMHB4IEdlb3JnaWEsc2VyaWZ9LmFkbSAuZzJ7ZGlzcGxheTpncmlkO2dyaWQtdGVtcGxhdGUtY29sdW1uczoxZnIgMWZyO2dhcDoxMHB4fUBtZWRpYShtYXgtd2lkdGg6NTYwcHgpey5hZG0gLmcye2dyaWQtdGVtcGxhdGUtY29sdW1uczoxZnJ9fS5iYXIye2hlaWdodDo2cHg7Ym9yZGVyLXJhZGl1czo5cHg7YmFja2dyb3VuZDp2YXIoLS1saW5lKTtvdmVyZmxvdzpoaWRkZW47bWFyZ2luLXRvcDo4cHh9LmJhcjIgaXtkaXNwbGF5OmJsb2NrO2hlaWdodDoxMDAlO3dpZHRoOjA7YmFja2dyb3VuZDp2YXIoLS1hY2NlbnQpfS5tc2d7Zm9udDoxM3B4IHN5c3RlbS11aSxzYW5zLXNlcmlmO2NvbG9yOnZhcigtLW11dGVkKTttYXJnaW4tdG9wOjhweH08L3N0eWxlPgo8L2hlYWQ+Cjxib2R5Pgo8ZGl2IGNsYXNzPSJ3cmFwIj4KICA8aGVhZGVyPjxkaXYgY2xhc3M9ImxvZ28iIGlkPSJsb2dvIj5PeXVuPHNwYW4+S8O8dMO8cGhhbmVtPC9zcGFuPjwvZGl2PjwvaGVhZGVyPgogIDxzZWN0aW9uIGNsYXNzPSJhZG0iIGlkPSJhZG0iPgogICAgPGgyPlnDtm5ldGljaSBwYW5lbGk8L2gyPgogICAgPGRpdiBjbGFzcz0iZzIiPgogICAgICA8ZGl2PjxsYWJlbD5PeXVuIGFkxLEgKjwvbGFiZWw+PGlucHV0IGlkPSJmVGl0bGUiPjwvZGl2PgogICAgICA8ZGl2PjxsYWJlbD5LYXRlZ29yaTwvbGFiZWw+PHNlbGVjdCBpZD0iZkNhdCI+PG9wdGlvbj5Ba3NpeW9uPC9vcHRpb24+PG9wdGlvbj5CdWxtYWNhPC9vcHRpb24+PG9wdGlvbj5NYWNlcmE8L29wdGlvbj48b3B0aW9uPlN0cmF0ZWppPC9vcHRpb24+PG9wdGlvbj5BcmNhZGU8L29wdGlvbj48b3B0aW9uPkRpxJ9lcjwvb3B0aW9uPjwvc2VsZWN0PjwvZGl2PgogICAgPC9kaXY+CiAgICA8bGFiZWw+QcOnxLFrbGFtYTwvbGFiZWw+PHRleHRhcmVhIGlkPSJmRGVzYyIgcm93cz0iMiI+PC90ZXh0YXJlYT4KICAgIDxkaXYgY2xhc3M9ImcyIj4KICAgICAgPGRpdj48bGFiZWw+S2FwYWsgZ8O2cnNlbGk8L2xhYmVsPjxpbnB1dCB0eXBlPSJmaWxlIiBpZD0iZkNvdmVyIiBhY2NlcHQ9ImltYWdlLyoiPjwvZGl2PgogICAgICA8ZGl2PjxsYWJlbD5PeXVuIGRvc3lhc8SxICguaHRtbCkgKjwvbGFiZWw+PGlucHV0IHR5cGU9ImZpbGUiIGlkPSJmRmlsZSIgYWNjZXB0PSIuaHRtbCwuaHRtIj48L2Rpdj4KICAgIDwvZGl2PgogICAgPGRpdiBjbGFzcz0icm93IiBzdHlsZT0ibWFyZ2luLXRvcDoxNHB4Ij48YnV0dG9uIGNsYXNzPSJwcmltYXJ5IiBpZD0ic2F2ZSI+WcO8a2xlPC9idXR0b24+PGJ1dHRvbiBpZD0iaGlkZUFkbSI+UGFuZWxpIGthcGF0PC9idXR0b24+PC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJtc2ciIGlkPSJlcnIiPjwvZGl2PgogIDwvc2VjdGlvbj4KICA8c2VjdGlvbiBjbGFzcz0iaGVybyI+PGgxPk95dW5sYXLEsW4sIHRlayB2ZSBzYWRlIGJpciB5ZXJkZS48L2gxPjxwPlRlbGVmb251bmRhbiB5w7xrbGUsIHRlayBkb2t1bnXFn2xhIG95bmEuPC9wPjwvc2VjdGlvbj4KICA8ZGl2IGNsYXNzPSJ0b29scyI+PGlucHV0IGlkPSJxIiBwbGFjZWhvbGRlcj0iT3l1biBhcmHigKYiPjxkaXYgY2xhc3M9ImNoaXBzIiBpZD0iY2hpcHMiPjwvZGl2PjwvZGl2PgogIDxkaXYgY2xhc3M9ImdyaWQiIGlkPSJncmlkIj48L2Rpdj4KPC9kaXY+CjxkaXYgY2xhc3M9Im1vZGFsIiBpZD0icGluTSI+PGRpdiBjbGFzcz0icGFuZWwiPgogIDxoMiBpZD0icGluVCI+WcO2bmV0aWNpIGdpcmnFn2k8L2gyPgogIDxpbnB1dCBpZD0icGluIiB0eXBlPSJwYXNzd29yZCIgaW5wdXRtb2RlPSJudW1lcmljIiBwbGFjZWhvbGRlcj0iUElOIj4KICA8ZGl2IGNsYXNzPSJyb3ciIHN0eWxlPSJtYXJnaW4tdG9wOjE0cHgiPjxidXR0b24gaWQ9InBpbk5vIj5WYXpnZcOnPC9idXR0b24+PGJ1dHRvbiBjbGFzcz0icHJpbWFyeSIgaWQ9InBpbk9rIj5UYW1hbTwvYnV0dG9uPjwvZGl2PgogIDxkaXYgY2xhc3M9Im1zZyIgaWQ9InBpbkUiPjwvZGl2Pgo8L2Rpdj48L2Rpdj4KPGRpdiBjbGFzcz0ibW9kYWwiIGlkPSJwbGF5TSI+PGRpdiBjbGFzcz0icGFuZWwgcGxheSI+CiAgPGRpdiBjbGFzcz0iYmFyIj48c3Ryb25nIGlkPSJwVGl0bGUiPjwvc3Ryb25nPjxidXR0b24gaWQ9ImNsb3NlUGxheSI+S2FwYXQ8L2J1dHRvbj48L2Rpdj4KICA8aWZyYW1lIGlkPSJmcmFtZSIgc2FuZGJveD0iYWxsb3ctc2NyaXB0cyBhbGxvdy1wb2ludGVyLWxvY2sgYWxsb3ctZm9ybXMiIGFsbG93PSJmdWxsc2NyZWVuIj48L2lmcmFtZT4KPC9kaXY+PC9kaXY+CjxzY3JpcHQ+CmNvbnN0ICQ9aWQ9PmRvY3VtZW50LmdldEVsZW1lbnRCeUlkKGlkKTsKY29uc3QgZXNjPXM9PlN0cmluZyhzPT1udWxsPycnOnMpLnJlcGxhY2UoL1smPD4iXS9nLGM9Pih7JyYnOicmYW1wOycsJzwnOicmbHQ7JywnPic6JyZndDsnLCciJzonJnF1b3Q7J31bY10pKTsKbGV0IGdhbWVzPVtdLGNhdD0nVMO8bcO8JyxkYj1udWxsLGlzQWRtaW49ZmFsc2U7CmNvbnN0IG9wZW5EQj0oKT0+bmV3IFByb21pc2Uocj0+e3RyeXtjb25zdCBxPWluZGV4ZWREQi5vcGVuKCdveXVubGFyJywxKTtxLm9udXBncmFkZW5lZWRlZD0oKT0+cS5yZXN1bHQuY3JlYXRlT2JqZWN0U3RvcmUoJ2dhbWVzJyx7a2V5UGF0aDonaWQnfSk7cS5vbnN1Y2Nlc3M9KCk9PnIocS5yZXN1bHQpO3Eub25lcnJvcj0oKT0+cihudWxsKX1jYXRjaChlKXtyKG51bGwpfX0pOwpjb25zdCBkYkFsbD0oKT0+bmV3IFByb21pc2Uocj0+e2lmKCFkYilyZXR1cm4gcihbXSk7Y29uc3QgcT1kYi50cmFuc2FjdGlvbignZ2FtZXMnKS5vYmplY3RTdG9yZSgnZ2FtZXMnKS5nZXRBbGwoKTtxLm9uc3VjY2Vzcz0oKT0+cihxLnJlc3VsdC5zb3J0KChhLGIpPT5iLmlkLWEuaWQpKTtxLm9uZXJyb3I9KCk9PnIoW10pfSk7CmNvbnN0IGRiUHV0PWc9Pm5ldyBQcm9taXNlKHI9PntpZighZGIpcmV0dXJuIHIoZmFsc2UpO3RyeXtjb25zdCB0PWRiLnRyYW5zYWN0aW9uKCdnYW1lcycsJ3JlYWR3cml0ZScpO3Qub2JqZWN0U3RvcmUoJ2dhbWVzJykucHV0KGcpO3Qub25jb21wbGV0ZT0oKT0+cih0cnVlKTt0Lm9uZXJyb3I9dC5vbmFib3J0PSgpPT5yKGZhbHNlKX1jYXRjaChlKXtyKGZhbHNlKX19KTsKY29uc3QgZGJEZWw9aWQ9Pm5ldyBQcm9taXNlKHI9Pnt0cnl7Y29uc3QgdD1kYi50cmFuc2FjdGlvbignZ2FtZXMnLCdyZWFkd3JpdGUnKTt0Lm9iamVjdFN0b3JlKCdnYW1lcycpLmRlbGV0ZShpZCk7dC5vbmNvbXBsZXRlPSgpPT5yKCl9Y2F0Y2goZSl7cigpfX0pOwpmdW5jdGlvbiByZW5kZXIoKXsKICBjb25zdCBjYXRzPVsnVMO8bcO8JywuLi5uZXcgU2V0KGdhbWVzLm1hcChnPT5nLmNhdCkpXTsKICAkKCdjaGlwcycpLmlubmVySFRNTD1jYXRzLm1hcChjPT5gPGJ1dHRvbiBjbGFzcz0iY2hpcCAke2M9PT1jYXQ/J29uJzonJ30iIGRhdGEtYz0iJHtlc2MoYyl9Ij4ke2VzYyhjKX08L2J1dHRvbj5gKS5qb2luKCcnKTsKICBjb25zdCBxPSQoJ3EnKS52YWx1ZS50b0xvd2VyQ2FzZSgpOwogIGNvbnN0IGxpc3Q9Z2FtZXMuZmlsdGVyKGc9PihjYXQ9PT0nVMO8bcO8J3x8Zy5jYXQ9PT1jYXQpJiZnLnRpdGxlLnRvTG93ZXJDYXNlKCkuaW5jbHVkZXMocSkpOwogICQoJ2dyaWQnKS5pbm5lckhUTUw9bGlzdC5sZW5ndGg/bGlzdC5tYXAoZz0+YDxkaXYgY2xhc3M9ImNhcmQiPgogICAgPGRpdiBjbGFzcz0iY292ZXIiIHN0eWxlPSIke2cuY292ZXI/YGJhY2tncm91bmQtaW1hZ2U6dXJsKCR7Zy5jb3Zlcn0pYDonJ30iPiR7Zy5jb3Zlcj8nJzon8J+Orid9PC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJib2R5Ij48ZGl2IGNsYXNzPSJjYXQiPiR7ZXNjKGcuY2F0KX08L2Rpdj48aDM+JHtlc2MoZy50aXRsZSl9PC9oMz48cD4ke2VzYyhnLmRlc2MpfTwvcD4KICAgIDxkaXYgY2xhc3M9InJvdyI+PGJ1dHRvbiBjbGFzcz0icHJpbWFyeSIgZGF0YS1wbGF5PSIke2cuaWR9Ij5PeW5hPC9idXR0b24+JHtpc0FkbWluP2A8YnV0dG9uIGRhdGEtZGVsPSIke2cuaWR9Ij5TaWw8L2J1dHRvbj5gOicnfTwvZGl2PjwvZGl2PjwvZGl2PmApLmpvaW4oJycpCiAgICA6JzxkaXYgY2xhc3M9ImVtcHR5Ij5IZW7DvHogb3l1biB5b2suPC9kaXY+JzsKfQokKCdjaGlwcycpLm9uY2xpY2s9ZT0+e2NvbnN0IGM9ZS50YXJnZXQuZGF0YXNldC5jO2lmKGMpe2NhdD1jO3JlbmRlcigpfX07CiQoJ3EnKS5vbmlucHV0PXJlbmRlcjsKJCgnZ3JpZCcpLm9uY2xpY2s9YXN5bmMgZT0+ewogIGNvbnN0IHA9ZS50YXJnZXQuZGF0YXNldC5wbGF5LGQ9ZS50YXJnZXQuZGF0YXNldC5kZWw7CiAgaWYocCl7Y29uc3QgZz1nYW1lcy5maW5kKHg9PnguaWQ9PXApOyQoJ3BUaXRsZScpLnRleHRDb250ZW50PWcudGl0bGU7JCgncGxheU0nKS5jbGFzc0xpc3QuYWRkKCdzaG93Jyk7JCgnZnJhbWUnKS5zcmNkb2M9YXdhaXQgZy5maWxlLnRleHQoKX0KICBpZihkJiZjb25maXJtKCdCdSBveXVuIHNpbGluc2luIG1pPycpKXthd2FpdCBkYkRlbChOdW1iZXIoZCkpO2dhbWVzPWdhbWVzLmZpbHRlcih4PT54LmlkIT1kKTtyZW5kZXIoKX0KfTsKJCgnY2xvc2VQbGF5Jykub25jbGljaz0oKT0+eyQoJ3BsYXlNJykuY2xhc3NMaXN0LnJlbW92ZSgnc2hvdycpOyQoJ2ZyYW1lJykuc3JjZG9jPScnfTsKY29uc3QgaGFzaD1zPT57bGV0IGg9NTM4MTtmb3IoY29uc3QgYyBvZiAnb3l1bnwnK3MpaD0oKGg8PDUpK2grYy5jaGFyQ29kZUF0KDApKXwwO3JldHVybiBTdHJpbmcoaCl9OwpsZXQgdGFwcz0wLHR0OwokKCdsb2dvJykub25jbGljaz0oKT0+e3RhcHMrKztjbGVhclRpbWVvdXQodHQpO3R0PXNldFRpbWVvdXQoKCk9PnRhcHM9MCwxNTAwKTtpZih0YXBzPj01KXt0YXBzPTA7CiAgaWYoaXNBZG1pbil7JCgnYWRtJykuY2xhc3NMaXN0LmFkZCgnc2hvdycpO3JldHVybn0KICAkKCdwaW5UJykudGV4dENvbnRlbnQ9bG9jYWxTdG9yYWdlLmdldEl0ZW0oJ3BpbmgnKT8nWcO2bmV0aWNpIGdpcmnFn2knOidZZW5pIFBJTiBiZWxpcmxlIChlbiBheiA0IGhhbmUpJzsKICAkKCdwaW4nKS52YWx1ZT0nJzskKCdwaW5FJykudGV4dENvbnRlbnQ9Jyc7JCgncGluTScpLmNsYXNzTGlzdC5hZGQoJ3Nob3cnKX19OwokKCdwaW5ObycpLm9uY2xpY2s9KCk9PiQoJ3Bpbk0nKS5jbGFzc0xpc3QucmVtb3ZlKCdzaG93Jyk7CiQoJ3Bpbk9rJykub25jbGljaz0oKT0+ewogIGNvbnN0IHY9JCgncGluJykudmFsdWUsc2F2ZWQ9bG9jYWxTdG9yYWdlLmdldEl0ZW0oJ3BpbmgnKTsKICBpZighc2F2ZWQpe2lmKHYubGVuZ3RoPDQpeyQoJ3BpbkUnKS50ZXh0Q29udGVudD0nRW4gYXogNCBoYW5lIGdpci4nO3JldHVybn1sb2NhbFN0b3JhZ2Uuc2V0SXRlbSgncGluaCcsaGFzaCh2KSl9CiAgZWxzZSBpZihoYXNoKHYpIT09c2F2ZWQpeyQoJ3BpbkUnKS50ZXh0Q29udGVudD0nUElOIHlhbmzEscWfLic7cmV0dXJufQogIGlzQWRtaW49dHJ1ZTskKCdwaW5NJykuY2xhc3NMaXN0LnJlbW92ZSgnc2hvdycpOyQoJ2FkbScpLmNsYXNzTGlzdC5hZGQoJ3Nob3cnKTtyZW5kZXIoKTsKfTsKJCgnaGlkZUFkbScpLm9uY2xpY2s9KCk9Pntpc0FkbWluPWZhbHNlOyQoJ2FkbScpLmNsYXNzTGlzdC5yZW1vdmUoJ3Nob3cnKTtyZW5kZXIoKX07CmNvbnN0IGNvdmVyPWY9Pm5ldyBQcm9taXNlKHI9Pntjb25zdCB4PW5ldyBGaWxlUmVhZGVyKCk7eC5vbmxvYWQ9KCk9Pntjb25zdCBpPW5ldyBJbWFnZSgpO2kub25sb2FkPSgpPT57CiAgY29uc3Qgdz00ODAsaD1NYXRoLnJvdW5kKGkuaGVpZ2h0KncvaS53aWR0aCksYz1kb2N1bWVudC5jcmVhdGVFbGVtZW50KCdjYW52YXMnKTtjLndpZHRoPXc7Yy5oZWlnaHQ9aDsKICBjLmdldENvbnRleHQoJzJkJykuZHJhd0ltYWdlKGksMCwwLHcsaCk7cihjLnRvRGF0YVVSTCgnaW1hZ2UvanBlZycsLjgpKX07aS5zcmM9eC5yZXN1bHR9O3gucmVhZEFzRGF0YVVSTChmKX0pOwokKCdzYXZlJykub25jbGljaz1hc3luYygpPT57CiAgY29uc3QgdGl0bGU9JCgnZlRpdGxlJykudmFsdWUudHJpbSgpLGZpbGU9JCgnZkZpbGUnKS5maWxlc1swXSxlcnI9JCgnZXJyJyk7CiAgaWYoIWlzQWRtaW4pcmV0dXJuOwogIGlmKCF0aXRsZXx8IWZpbGUpe2Vyci50ZXh0Q29udGVudD0nQWQgdmUgb3l1biBkb3N5YXPEsSBnZXJla2xpLic7cmV0dXJufQogIGNvbnN0IGc9e2lkOkRhdGUubm93KCksdGl0bGUsY2F0OiQoJ2ZDYXQnKS52YWx1ZSxkZXNjOiQoJ2ZEZXNjJykudmFsdWUudHJpbSgpLGZpbGV9OwogIGNvbnN0IGN2PSQoJ2ZDb3ZlcicpLmZpbGVzWzBdO2lmKGN2KWcuY292ZXI9YXdhaXQgY292ZXIoY3YpOwogIGlmKCFhd2FpdCBkYlB1dChnKSl7ZXJyLnRleHRDb250ZW50PSdLYXlkZWRpbGVtZWRpOiBkZXBvbGFtYSBhbGFuxLEgeWV0bWVkaS4nO3JldHVybn0KICBnYW1lcy51bnNoaWZ0KGcpO1snZlRpdGxlJywnZkRlc2MnLCdmQ292ZXInLCdmRmlsZSddLmZvckVhY2goaT0+JChpKS52YWx1ZT0nJyk7ZXJyLnRleHRDb250ZW50PSdZw7xrbGVuZGkg4pyTJztyZW5kZXIoKTsKfTsKKGFzeW5jKCk9PntkYj1hd2FpdCBvcGVuREIoKTtnYW1lcz1hd2FpdCBkYkFsbCgpO3RyeXtuYXZpZ2F0b3Iuc3RvcmFnZS5wZXJzaXN0KCl9Y2F0Y2goZSl7fXJlbmRlcigpfSkoKTsKPC9zY3JpcHQ+CjwvYm9keT4KPC9odG1sPg==
+          EOF
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+      - run: gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OyunKutuphanem-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
